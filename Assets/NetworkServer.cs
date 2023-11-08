@@ -3,6 +3,7 @@ using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
+using System.Collections.Generic;
 
 public class NetworkServer : MonoBehaviour
 {
@@ -12,9 +13,12 @@ public class NetworkServer : MonoBehaviour
     NetworkPipeline reliableAndInOrderPipeline;
     NetworkPipeline nonReliableNotInOrderedPipeline;
 
-    const ushort NetworkPort = 9001;
+    const ushort NetworkPort = 54321;
 
     const int MaxNumberOfClientConnections = 1000;
+
+    List<string> usernames;
+    List<string> passwords;
 
     void Start()
     {
@@ -31,6 +35,9 @@ public class NetworkServer : MonoBehaviour
             networkDriver.Listen();
 
         networkConnections = new NativeList<NetworkConnection>(MaxNumberOfClientConnections, Allocator.Persistent);
+
+        usernames = new List<string>();
+        passwords = new List<string>();
     }
 
     void OnDestroy()
@@ -98,12 +105,29 @@ public class NetworkServer : MonoBehaviour
                 switch (networkEventType)
                 {
                     case NetworkEvent.Type.Data:
+                        int dataSignifier = streamReader.ReadInt();
+
                         int sizeOfDataBuffer = streamReader.ReadInt();
                         NativeArray<byte> buffer = new NativeArray<byte>(sizeOfDataBuffer, Allocator.Persistent);
                         streamReader.ReadBytes(buffer);
                         byte[] byteBuffer = buffer.ToArray();
                         string msg = Encoding.Unicode.GetString(byteBuffer);
-                        ProcessReceivedMsg(msg);
+                        
+                        string[] loginInfo = msg.Split(',');
+
+                        if (dataSignifier == DataSignifiers.AccountSignup)
+                        {
+                            ProcessUserSignup(loginInfo[0], loginInfo[1], networkConnections[i]);
+                        }
+                        else if (dataSignifier == DataSignifiers.AccountSignin)
+                        {
+                            ProcessUserSignin(loginInfo[0], loginInfo[1], networkConnections[i]);
+                        }
+                        else if (dataSignifier == DataSignifiers.Message)
+                        {
+                            ProcessReceivedMsg(msg);
+                        }
+
                         buffer.Dispose();
                         break;
                     case NetworkEvent.Type.Disconnect:
@@ -156,6 +180,69 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
+    }
+
+    public void ProcessUserSignin(string username, string password, NetworkConnection networkConnection)
+    {
+        bool isValidUsername = false;
+        bool isValidPassword = false;
+
+        for (int i = 0; i < usernames.Count; i++)
+        {
+            if (username == usernames[i])
+            {
+                isValidUsername = true;
+
+                if (password == passwords[i])
+                {
+                    isValidPassword = true;
+                }
+
+                break;
+            }
+        }
+
+        if (isValidUsername)
+        {
+            if (isValidPassword)
+            {
+                SendMessageToClient("Sign in approved", networkConnection);
+            }
+            else
+            {
+                SendMessageToClient("Wrong password for this username", networkConnection);
+            }
+        }
+        else
+        {
+            SendMessageToClient("Username does not exist please proceed to sign up", networkConnection);
+        }
+    }
+
+    public void ProcessUserSignup(string username, string password, NetworkConnection networkConnection)
+    {
+        bool isValid = true;
+
+        foreach (string s in usernames)
+        {
+            if (username == s)
+            {
+                isValid = false;
+                break;
+            }
+        }
+
+        if (isValid)
+        {
+            usernames.Add(username);
+            passwords.Add(password);
+
+            SendMessageToClient("New Account Created", networkConnection);
+        }
+        else
+        {
+            SendMessageToClient("Account already exists please proceed to sign in", networkConnection);
+        }
     }
 
 }
