@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
 using System.Collections.Generic;
+using System.IO;
 
 public class NetworkServer : MonoBehaviour
 {
@@ -19,6 +20,8 @@ public class NetworkServer : MonoBehaviour
 
     List<string> usernames;
     List<string> passwords;
+
+    const string FilePathForSavedLoginInfo = "SaveLoginInformation.txt";
 
     void Start()
     {
@@ -38,6 +41,11 @@ public class NetworkServer : MonoBehaviour
 
         usernames = new List<string>();
         passwords = new List<string>();
+
+        if (File.Exists(FilePathForSavedLoginInfo))
+        {
+            LoadLoginInfo();
+        }
     }
 
     void OnDestroy()
@@ -182,6 +190,33 @@ public class NetworkServer : MonoBehaviour
         buffer.Dispose();
     }
 
+    public void SendLoginResponseToClient(string msg, bool loginResponse, NetworkConnection networkConnection)
+    {
+        if (loginResponse)
+        {
+            msg = "YES," + msg;
+        }
+        else
+        {
+            msg = "NO," + msg;
+        }
+
+        byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
+        NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+
+
+        //Driver.BeginSend(m_Connection, out var writer);
+        DataStreamWriter streamWriter;
+        //networkConnection.
+        networkDriver.BeginSend(reliableAndInOrderPipeline, networkConnection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.ServerLoginResponse);
+        streamWriter.WriteInt(buffer.Length);
+        streamWriter.WriteBytes(buffer);
+        networkDriver.EndSend(streamWriter);
+
+        buffer.Dispose();
+    }
+
     public void ProcessUserSignin(string username, string password, NetworkConnection networkConnection)
     {
         bool isValidUsername = false;
@@ -206,16 +241,16 @@ public class NetworkServer : MonoBehaviour
         {
             if (isValidPassword)
             {
-                SendMessageToClient("Sign in approved", networkConnection);
+                SendLoginResponseToClient("Sign in approved", true, networkConnection);
             }
             else
             {
-                SendMessageToClient("Wrong password for this username", networkConnection);
+                SendLoginResponseToClient("Wrong password for this username", false, networkConnection);
             }
         }
         else
         {
-            SendMessageToClient("Username does not exist please proceed to sign up", networkConnection);
+            SendLoginResponseToClient("Username does not exist please proceed to sign up", false, networkConnection);
         }
     }
 
@@ -237,12 +272,44 @@ public class NetworkServer : MonoBehaviour
             usernames.Add(username);
             passwords.Add(password);
 
-            SendMessageToClient("New Account Created", networkConnection);
+            SendLoginResponseToClient("New Account Created", true, networkConnection);
+
+            SaveLoginInfo();
         }
         else
         {
-            SendMessageToClient("Account already exists please proceed to sign in", networkConnection);
+            SendLoginResponseToClient("Account already exists please proceed to sign in", false, networkConnection);
         }
+    }
+
+    public void SaveLoginInfo()
+    {
+        StreamWriter sw = new StreamWriter(FilePathForSavedLoginInfo);
+
+        for (int i = 0; i < usernames.Count; i++)
+        {
+            string info = usernames[i] + ',' + passwords[i];
+
+            sw.WriteLine(info);
+        }
+
+        sw.Close();
+    }
+
+    public void LoadLoginInfo()
+    {
+        StreamReader sr = new StreamReader(FilePathForSavedLoginInfo);
+
+        while (!sr.EndOfStream)
+        {
+            string info = sr.ReadLine();
+            string[] infoSeparated = info.Split(',');
+            
+            usernames.Add(infoSeparated[0]);
+            passwords.Add(infoSeparated[1]);
+        }
+
+        sr.Close();
     }
 
 }
