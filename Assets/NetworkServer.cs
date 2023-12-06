@@ -5,6 +5,9 @@ using Unity.Networking.Transport;
 using System.Text;
 using System.Collections.Generic;
 using System.IO;
+using UnityEditor;
+using System.Xml.Serialization;
+using UnityEditor.MemoryProfiler;
 
 public class NetworkServer : MonoBehaviour
 {
@@ -20,6 +23,12 @@ public class NetworkServer : MonoBehaviour
 
     List<string> usernames;
     List<string> passwords;
+
+    [SerializeField]
+    List<string> allGameID;
+
+    [SerializeField]
+    List<List<NetworkConnection>> connectionsForEachRoom;
 
     const string FilePathForSavedLoginInfo = "SaveLoginInformation.txt";
 
@@ -41,6 +50,7 @@ public class NetworkServer : MonoBehaviour
 
         usernames = new List<string>();
         passwords = new List<string>();
+        connectionsForEachRoom = new List<List<NetworkConnection>>();
 
         if (File.Exists(FilePathForSavedLoginInfo))
         {
@@ -123,17 +133,28 @@ public class NetworkServer : MonoBehaviour
                         
                         string[] loginInfo = msg.Split(',');
 
-                        if (dataSignifier == DataSignifiers.AccountSignup)
+                        switch (dataSignifier)
                         {
-                            ProcessUserSignup(loginInfo[0], loginInfo[1], networkConnections[i]);
-                        }
-                        else if (dataSignifier == DataSignifiers.AccountSignin)
-                        {
-                            ProcessUserSignin(loginInfo[0], loginInfo[1], networkConnections[i]);
-                        }
-                        else if (dataSignifier == DataSignifiers.Message)
-                        {
-                            ProcessReceivedMsg(msg);
+                            case DataSignifiers.AccountSignup:
+                                ProcessUserSignup(loginInfo[0], loginInfo[1], networkConnections[i]);
+                                break;
+
+                            case DataSignifiers.AccountSignin:
+                                ProcessUserSignin(loginInfo[0], loginInfo[1], networkConnections[i]);
+                                break;
+
+                            case DataSignifiers.Message:
+                                ProcessReceivedMsg(msg);
+                                break;
+
+                            case DataSignifiers.GameID:
+                                ProcessUserGameID(msg, networkConnections[i]);
+                                break;
+
+                            case DataSignifiers.BackOut:
+                                ProcessUserBackOut(msg, networkConnections[i]);
+                                break;
+
                         }
 
                         buffer.Dispose();
@@ -310,6 +331,114 @@ public class NetworkServer : MonoBehaviour
         }
 
         sr.Close();
+    }
+
+    public void ProcessUserGameID(string gameID, NetworkConnection connection)
+    {
+        bool isInList = false;
+
+        int index;
+
+        for (index = 0; index < allGameID.Count; index++)
+        {
+            if (gameID == allGameID[index])
+            {
+                isInList = true;
+                break;
+            }
+        }
+
+        if (isInList)
+        {
+            if (connectionsForEachRoom[index][0] == null)
+            {
+                connectionsForEachRoom[index][0] = connection;
+
+                SendGameIDResponse(false, connection, index);
+            }
+            else
+            {
+                connectionsForEachRoom[index].Add(connection);
+
+                SendGameIDResponse(true, connection, index);
+            }
+        }
+        else
+        {
+            allGameID.Add(gameID);
+
+            List<NetworkConnection> tempConnectionsForGameRoom;
+            tempConnectionsForGameRoom = new List<NetworkConnection>()
+            {
+                connection
+            };
+
+            connectionsForEachRoom.Add(tempConnectionsForGameRoom);
+
+            SendGameIDResponse(false, connection, allGameID.Count - 1);
+        }
+    }
+
+    public void SendGameIDResponse(bool isBothPlayersIn, NetworkConnection connection, int gameRoomIndex)
+    {
+        DataStreamWriter streamWriter;
+        //networkConnection.
+        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.ServerGameIDResponse);
+
+        if (isBothPlayersIn)
+        {
+            if (connectionsForEachRoom[gameRoomIndex][0] == connection)
+            {
+                streamWriter.WriteInt((int)GameStates.PlayerMove);
+            }
+            else
+            {
+                streamWriter.WriteInt((int)GameStates.OpponentMove);
+            }
+        }
+        else
+        {
+            streamWriter.WriteInt((int)GameStates.LookingForPlayer);
+        }
+
+        networkDriver.EndSend(streamWriter);
+    }
+
+    public void ProcessUserBackOut(string gameID, NetworkConnection connection)
+    {
+        int index;
+
+        for (index = 0; index < allGameID.Count; index++)
+        {
+            if (gameID == allGameID[index])
+            {
+                break;
+            }
+        }
+
+        if (connectionsForEachRoom[index][0] == connection || connectionsForEachRoom[index][1] == connection)
+        {
+            SendServerGameRoomKick(index);
+            allGameID.Remove(gameID);
+        }
+        else
+        {
+            connectionsForEachRoom[index].Remove(connection);
+        }
+    }
+
+    public void SendServerGameRoomKick(int gameRoomIndex)
+    {
+        foreach (NetworkConnection c in connectionsForEachRoom[gameRoomIndex])
+        {
+            DataStreamWriter streamWriter;
+
+            networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
+            streamWriter.WriteInt(DataSignifiers.ServerGameRoomKick);
+
+            networkDriver.EndSend(streamWriter);
+        }
     }
 
 }
