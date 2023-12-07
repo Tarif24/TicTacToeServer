@@ -115,10 +115,10 @@ public class NetworkServer : MonoBehaviour
 
             while (PopNetworkEventAndCheckForData(networkConnections[i], out networkEventType, out streamReader, out pipelineUsedToSendEvent))
             {
-                if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
-                    Debug.Log("Network event from: reliableAndInOrderPipeline");
-                else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
-                    Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
+                //if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
+                //    Debug.Log("Network event from: reliableAndInOrderPipeline");
+                //else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
+                //    Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
 
                 switch (networkEventType)
                 {
@@ -131,16 +131,16 @@ public class NetworkServer : MonoBehaviour
                         byte[] byteBuffer = buffer.ToArray();
                         string msg = Encoding.Unicode.GetString(byteBuffer);
                         
-                        string[] loginInfo = msg.Split(',');
+                        string[] Info = msg.Split(',');
 
                         switch (dataSignifier)
                         {
                             case DataSignifiers.AccountSignup:
-                                ProcessUserSignup(loginInfo[0], loginInfo[1], networkConnections[i]);
+                                ProcessUserSignup(Info[0], Info[1], networkConnections[i]);
                                 break;
 
                             case DataSignifiers.AccountSignin:
-                                ProcessUserSignin(loginInfo[0], loginInfo[1], networkConnections[i]);
+                                ProcessUserSignin(Info[0], Info[1], networkConnections[i]);
                                 break;
 
                             case DataSignifiers.Message:
@@ -153,6 +153,10 @@ public class NetworkServer : MonoBehaviour
 
                             case DataSignifiers.BackOut:
                                 ProcessUserBackOut(msg, networkConnections[i]);
+                                break;
+
+                            case DataSignifiers.MessageToOpponent:
+                                ProcessMessageToOpponent(Info[0], Info[1], networkConnections[i]);
                                 break;
 
                         }
@@ -348,20 +352,13 @@ public class NetworkServer : MonoBehaviour
             }
         }
 
-        if (isInList)
+        if (isInList && !connectionsForEachRoom[index][1].IsCreated)
         {
-            if (connectionsForEachRoom[index][0] == null)
-            {
-                connectionsForEachRoom[index][0] = connection;
+            
+            connectionsForEachRoom[index][1] = connection;
 
-                SendGameIDResponse(false, connection, index);
-            }
-            else
-            {
-                connectionsForEachRoom[index].Add(connection);
-
-                SendGameIDResponse(true, connection, index);
-            }
+            SendGameIDResponse(true, connection, index);
+            
         }
         else
         {
@@ -370,7 +367,8 @@ public class NetworkServer : MonoBehaviour
             List<NetworkConnection> tempConnectionsForGameRoom;
             tempConnectionsForGameRoom = new List<NetworkConnection>()
             {
-                connection
+                connection,
+                new NetworkConnection()
             };
 
             connectionsForEachRoom.Add(tempConnectionsForGameRoom);
@@ -381,28 +379,39 @@ public class NetworkServer : MonoBehaviour
 
     public void SendGameIDResponse(bool isBothPlayersIn, NetworkConnection connection, int gameRoomIndex)
     {
-        DataStreamWriter streamWriter;
-        //networkConnection.
-        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
-        streamWriter.WriteInt(DataSignifiers.ServerGameIDResponse);
-
-        if (isBothPlayersIn)
+       
+        foreach (NetworkConnection c in connectionsForEachRoom[gameRoomIndex])
         {
-            if (connectionsForEachRoom[gameRoomIndex][0] == connection)
+            if (c.IsCreated)
             {
-                streamWriter.WriteInt((int)GameStates.PlayerMove);
-            }
-            else
-            {
-                streamWriter.WriteInt((int)GameStates.OpponentMove);
+                DataStreamWriter streamWriter;
+                //networkConnection.
+                networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
+                streamWriter.WriteInt(DataSignifiers.ServerGameIDResponse);
+
+                if (isBothPlayersIn)
+                {
+                    if (connectionsForEachRoom[gameRoomIndex][0] == connection || connectionsForEachRoom[gameRoomIndex][1] == connection)
+                    {
+                        if (connectionsForEachRoom[gameRoomIndex][0] == c)
+                        {
+                            streamWriter.WriteInt((int)GameStates.PlayerMove);
+                        }
+                        else if (connectionsForEachRoom[gameRoomIndex][1] == c)
+                        {
+                            streamWriter.WriteInt((int)GameStates.OpponentMove);
+                        }
+                    }
+                }
+                else
+                {
+                    streamWriter.WriteInt((int)GameStates.LookingForPlayer);
+                }
+
+                networkDriver.EndSend(streamWriter);
             }
         }
-        else
-        {
-            streamWriter.WriteInt((int)GameStates.LookingForPlayer);
-        }
-
-        networkDriver.EndSend(streamWriter);
+        
     }
 
     public void ProcessUserBackOut(string gameID, NetworkConnection connection)
@@ -417,10 +426,27 @@ public class NetworkServer : MonoBehaviour
             }
         }
 
-        if (connectionsForEachRoom[index][0] == connection || connectionsForEachRoom[index][1] == connection)
+        if (connectionsForEachRoom[index][0] == connection)
         {
-            SendServerGameRoomKick(index);
-            allGameID.Remove(gameID);
+            if (!connectionsForEachRoom[index][1].IsCreated)
+            {
+                allGameID.Remove(gameID);
+                SendServerGameRoomKick(index);
+                connectionsForEachRoom.RemoveAt(index);
+            }
+            else
+            {
+                connectionsForEachRoom[index][0] = connectionsForEachRoom[index][1];
+                connectionsForEachRoom[index][1] = new NetworkConnection();
+                SendServerSendToLookingForPlayer(connectionsForEachRoom[index][0]);
+                SendServerGameRoomKick(index);
+            }
+            
+        }
+        else if (connectionsForEachRoom[index][1] == connection)
+        {
+            connectionsForEachRoom[index][1] = new NetworkConnection();
+            SendServerSendToLookingForPlayer(connectionsForEachRoom[index][0]);
         }
         else
         {
@@ -430,15 +456,67 @@ public class NetworkServer : MonoBehaviour
 
     public void SendServerGameRoomKick(int gameRoomIndex)
     {
-        foreach (NetworkConnection c in connectionsForEachRoom[gameRoomIndex])
+        for (int i = 2; i < connectionsForEachRoom[gameRoomIndex].Count; i++)
         {
             DataStreamWriter streamWriter;
+
+            NetworkConnection c = connectionsForEachRoom[gameRoomIndex][i];
 
             networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
             streamWriter.WriteInt(DataSignifiers.ServerGameRoomKick);
 
             networkDriver.EndSend(streamWriter);
         }
+    }
+
+    public void SendServerSendToLookingForPlayer(NetworkConnection connection)
+    {
+        DataStreamWriter streamWriter;
+
+        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.ServerSendToLookingForPlayer);
+
+        networkDriver.EndSend(streamWriter);
+    }
+
+    public void ProcessMessageToOpponent(string gameID, string msg, NetworkConnection connection)
+    {
+        int index;
+
+        for (index = 0; index < allGameID.Count; index++)
+        {
+            if (gameID == allGameID[index])
+            {
+                break;
+            }
+        }
+
+        if (connectionsForEachRoom[index][0] == connection)
+        {
+            SendMessageFromOpponent(connectionsForEachRoom[index][1], msg);
+        }
+        else
+        {
+            SendMessageFromOpponent(connectionsForEachRoom[index][0], msg);
+        }
+    }
+
+    public void SendMessageFromOpponent(NetworkConnection connection, string msg)
+    {
+        string temp = "Message From Opponent: " + msg;
+
+        byte[] msgAsByteArray = Encoding.Unicode.GetBytes(temp);
+        NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+
+        DataStreamWriter streamWriter;
+        //networkConnection.
+        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.MessageToOpponent);
+        streamWriter.WriteInt(buffer.Length);
+        streamWriter.WriteBytes(buffer);
+        networkDriver.EndSend(streamWriter);
+
+        buffer.Dispose();
     }
 
 }

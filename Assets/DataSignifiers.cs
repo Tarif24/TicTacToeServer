@@ -13,6 +13,8 @@ static public class DataSignifiers
     public const int ServerGameIDResponse = 6;
     public const int BackOut = 7;
     public const int ServerGameRoomKick = 8;
+    public const int ServerSendToLookingForPlayer = 9;
+    public const int MessageToOpponent = 10;
 }
 
 public enum GameStates { Login, EnterGameID, LookingForPlayer, PlayerMove, OpponentMove, Win, Lose };
