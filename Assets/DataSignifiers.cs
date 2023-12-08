@@ -18,5 +18,5 @@ static public class DataSignifiers
     public const int SelectionToOpponent = 11;
 }
 
-public enum GameStates { Login, EnterGameID, LookingForPlayer, PlayerMove, OpponentMove, Win, Lose };
+public enum GameStates { Login, EnterGameID, LookingForPlayer, PlayerMove, OpponentMove, Observer, Win, Lose, Draw, Finish };
 

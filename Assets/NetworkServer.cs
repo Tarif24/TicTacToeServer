@@ -116,11 +116,6 @@ public class NetworkServer : MonoBehaviour
 
             while (PopNetworkEventAndCheckForData(networkConnections[i], out networkEventType, out streamReader, out pipelineUsedToSendEvent))
             {
-                //if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
-                //    Debug.Log("Network event from: reliableAndInOrderPipeline");
-                //else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
-                //    Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
-
                 switch (networkEventType)
                 {
                     case NetworkEvent.Type.Data:
@@ -368,6 +363,11 @@ public class NetworkServer : MonoBehaviour
             SendGameIDResponse(true, connection, index);
             
         }
+        else if (isInList)
+        {
+            connectionsForEachRoom[index].Add(connection);
+            SendGameIDResponse(true, connection, index);
+        }
         else
         {
             allGameID.Add(gameID);
@@ -413,6 +413,11 @@ public class NetworkServer : MonoBehaviour
                             streamWriter.WriteInt((int)GameStates.OpponentMove);
                             temp = "O";
                         }
+                    }
+                    else
+                    {
+                        streamWriter.WriteInt((int)GameStates.Observer);
+                        temp = " ";
                     }
                 }
                 else
@@ -520,7 +525,7 @@ public class NetworkServer : MonoBehaviour
 
     public void SendMessageFromOpponent(NetworkConnection connection, string msg)
     {
-        string temp = "Message From Opponent: " + msg;
+        string temp = "Message: " + msg;
 
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(temp);
         NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
@@ -550,16 +555,20 @@ public class NetworkServer : MonoBehaviour
 
         if (connectionsForEachRoom[index][0] == connection)
         {
-            SendSelectionFromOpponent(connectionsForEachRoom[index][1], x, y, outcome);
+            SendSelectionFromOpponent(connectionsForEachRoom[index][1], x, y, outcome, "X");
         }
-        else
+        else if (connectionsForEachRoom[index][1] == connection)
         {
-            SendSelectionFromOpponent(connectionsForEachRoom[index][0], x, y, outcome);
+            SendSelectionFromOpponent(connectionsForEachRoom[index][0], x, y, outcome, "O");
         }
     }
 
-    public void SendSelectionFromOpponent(NetworkConnection connection, int x, int y, int outcome)
+    public void SendSelectionFromOpponent(NetworkConnection connection, int x, int y, int outcome, string marker)
     {
+        byte[] msgAsByteArray = Encoding.Unicode.GetBytes(marker);
+        NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+
+
         DataStreamWriter streamWriter;
         //networkConnection.
         networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
@@ -567,6 +576,8 @@ public class NetworkServer : MonoBehaviour
         streamWriter.WriteInt(x);
         streamWriter.WriteInt(y);
         streamWriter.WriteInt(outcome);
+        streamWriter.WriteInt(buffer.Length);
+        streamWriter.WriteBytes(buffer);
         networkDriver.EndSend(streamWriter);
     }
 
