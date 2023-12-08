@@ -15,6 +15,7 @@ static public class DataSignifiers
     public const int ServerGameRoomKick = 8;
     public const int ServerSendToLookingForPlayer = 9;
     public const int MessageToOpponent = 10;
+    public const int SelectionToOpponent = 11;
 }
 
 public enum GameStates { Login, EnterGameID, LookingForPlayer, PlayerMove, OpponentMove, Win, Lose };

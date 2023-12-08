@@ -8,6 +8,7 @@ using System.IO;
 using UnityEditor;
 using System.Xml.Serialization;
 using UnityEditor.MemoryProfiler;
+using System;
 
 public class NetworkServer : MonoBehaviour
 {
@@ -157,6 +158,13 @@ public class NetworkServer : MonoBehaviour
 
                             case DataSignifiers.MessageToOpponent:
                                 ProcessMessageToOpponent(Info[0], Info[1], networkConnections[i]);
+                                break;
+
+                            case DataSignifiers.SelectionToOpponent:
+                                int x = streamReader.ReadInt();
+                                int y = streamReader.ReadInt();
+                                int outcome = streamReader.ReadInt();
+                                ProcessSelectionToOpponent(msg, x, y, outcome, networkConnections[i]);
                                 break;
 
                         }
@@ -384,6 +392,8 @@ public class NetworkServer : MonoBehaviour
         {
             if (c.IsCreated)
             {
+                string temp = " ";
+
                 DataStreamWriter streamWriter;
                 //networkConnection.
                 networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
@@ -396,10 +406,12 @@ public class NetworkServer : MonoBehaviour
                         if (connectionsForEachRoom[gameRoomIndex][0] == c)
                         {
                             streamWriter.WriteInt((int)GameStates.PlayerMove);
+                            temp = "X";
                         }
                         else if (connectionsForEachRoom[gameRoomIndex][1] == c)
                         {
                             streamWriter.WriteInt((int)GameStates.OpponentMove);
+                            temp = "O";
                         }
                     }
                 }
@@ -407,6 +419,11 @@ public class NetworkServer : MonoBehaviour
                 {
                     streamWriter.WriteInt((int)GameStates.LookingForPlayer);
                 }
+
+                byte[] msgAsByteArray = Encoding.Unicode.GetBytes(temp);
+                NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+                streamWriter.WriteInt(buffer.Length);
+                streamWriter.WriteBytes(buffer);
 
                 networkDriver.EndSend(streamWriter);
             }
@@ -517,6 +534,40 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
+    }
+
+    public void ProcessSelectionToOpponent(string gameID, int x, int y, int outcome, NetworkConnection connection)
+    {
+        int index;
+
+        for (index = 0; index < allGameID.Count; index++)
+        {
+            if (gameID == allGameID[index])
+            {
+                break;
+            }
+        }
+
+        if (connectionsForEachRoom[index][0] == connection)
+        {
+            SendSelectionFromOpponent(connectionsForEachRoom[index][1], x, y, outcome);
+        }
+        else
+        {
+            SendSelectionFromOpponent(connectionsForEachRoom[index][0], x, y, outcome);
+        }
+    }
+
+    public void SendSelectionFromOpponent(NetworkConnection connection, int x, int y, int outcome)
+    {
+        DataStreamWriter streamWriter;
+        //networkConnection.
+        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.SelectionToOpponent);
+        streamWriter.WriteInt(x);
+        streamWriter.WriteInt(y);
+        streamWriter.WriteInt(outcome);
+        networkDriver.EndSend(streamWriter);
     }
 
 }
