@@ -393,11 +393,8 @@ public class NetworkServer : MonoBehaviour
             if (c.IsCreated)
             {
                 string temp = " ";
-
-                DataStreamWriter streamWriter;
-                //networkConnection.
-                networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
-                streamWriter.WriteInt(DataSignifiers.ServerGameIDResponse);
+                int state = 0;
+                bool sendData = false;
 
                 if (isBothPlayersIn)
                 {
@@ -405,32 +402,46 @@ public class NetworkServer : MonoBehaviour
                     {
                         if (connectionsForEachRoom[gameRoomIndex][0] == c)
                         {
-                            streamWriter.WriteInt((int)GameStates.PlayerMove);
+                            sendData = true;
+                            state = (int)GameStates.PlayerMove;
                             temp = "X";
                         }
                         else if (connectionsForEachRoom[gameRoomIndex][1] == c)
                         {
-                            streamWriter.WriteInt((int)GameStates.OpponentMove);
+                            sendData = true;
+                            state = (int)GameStates.OpponentMove;
                             temp = "O";
                         }
                     }
-                    else
+                    else if (connectionsForEachRoom[gameRoomIndex][0] != c && connectionsForEachRoom[gameRoomIndex][1] != c)
                     {
-                        streamWriter.WriteInt((int)GameStates.Observer);
-                        temp = " ";
+                        sendData = true;
+                        state = (int)GameStates.Observer;
+                        temp = "T";
                     }
                 }
                 else
                 {
-                    streamWriter.WriteInt((int)GameStates.LookingForPlayer);
+                    sendData = true;
+                    state = (int)GameStates.LookingForPlayer;
                 }
 
-                byte[] msgAsByteArray = Encoding.Unicode.GetBytes(temp);
-                NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
-                streamWriter.WriteInt(buffer.Length);
-                streamWriter.WriteBytes(buffer);
+                if (sendData)
+                {
+                    DataStreamWriter streamWriter;
+                    //networkConnection.
+                    networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
+                    streamWriter.WriteInt(DataSignifiers.ServerGameIDResponse);
+                    byte[] msgAsByteArray = Encoding.Unicode.GetBytes(temp);
+                    NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+                    streamWriter.WriteInt(state);
+                    streamWriter.WriteInt(buffer.Length);
+                    streamWriter.WriteBytes(buffer);
 
-                networkDriver.EndSend(streamWriter);
+                    networkDriver.EndSend(streamWriter);
+
+                    buffer.Dispose();
+                }
             }
         }
         
@@ -555,30 +566,38 @@ public class NetworkServer : MonoBehaviour
 
         if (connectionsForEachRoom[index][0] == connection)
         {
-            SendSelectionFromOpponent(connectionsForEachRoom[index][1], x, y, outcome, "X");
+            SendSelectionFromOpponent(connectionsForEachRoom[index][0], x, y, outcome, "X", index);
         }
         else if (connectionsForEachRoom[index][1] == connection)
         {
-            SendSelectionFromOpponent(connectionsForEachRoom[index][0], x, y, outcome, "O");
+            SendSelectionFromOpponent(connectionsForEachRoom[index][1], x, y, outcome, "O", index);
         }
     }
 
-    public void SendSelectionFromOpponent(NetworkConnection connection, int x, int y, int outcome, string marker)
+    public void SendSelectionFromOpponent(NetworkConnection connectionToIgnore, int x, int y, int outcome, string marker, int gameRoomIndex)
     {
-        byte[] msgAsByteArray = Encoding.Unicode.GetBytes(marker);
-        NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+        foreach (NetworkConnection c in connectionsForEachRoom[gameRoomIndex])
+        {
+            if (c != connectionToIgnore)
+            {
+                byte[] msgAsByteArray = Encoding.Unicode.GetBytes(marker);
+                NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
 
 
-        DataStreamWriter streamWriter;
-        //networkConnection.
-        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
-        streamWriter.WriteInt(DataSignifiers.SelectionToOpponent);
-        streamWriter.WriteInt(x);
-        streamWriter.WriteInt(y);
-        streamWriter.WriteInt(outcome);
-        streamWriter.WriteInt(buffer.Length);
-        streamWriter.WriteBytes(buffer);
-        networkDriver.EndSend(streamWriter);
+                DataStreamWriter streamWriter;
+                //networkConnection.
+                networkDriver.BeginSend(reliableAndInOrderPipeline, c, out streamWriter);
+                streamWriter.WriteInt(DataSignifiers.SelectionToOpponent);
+                streamWriter.WriteInt(x);
+                streamWriter.WriteInt(y);
+                streamWriter.WriteInt(outcome);
+                streamWriter.WriteInt(buffer.Length);
+                streamWriter.WriteBytes(buffer);
+                networkDriver.EndSend(streamWriter);
+
+                buffer.Dispose();
+            }
+        }
     }
 
 }
