@@ -162,6 +162,24 @@ public class NetworkServer : MonoBehaviour
                                 ProcessSelectionToOpponent(msg, x, y, outcome, networkConnections[i]);
                                 break;
 
+                            case DataSignifiers.AllSelectionsToObserver:
+
+                                List<int[]> allSelections = new List<int[]>(); 
+
+                                while (streamReader.ReadInt() == 1)
+                                {
+                                    int[] temp = new int[3];
+
+                                    temp[0] = streamReader.ReadInt();
+                                    temp[1] = streamReader.ReadInt();
+                                    temp[2] = streamReader.ReadInt();
+
+                                    allSelections.Add(temp);
+                                }
+
+                                ProcessSelectionsToObserver(msg, allSelections);
+                                break;
+
                         }
 
                         buffer.Dispose();
@@ -367,6 +385,7 @@ public class NetworkServer : MonoBehaviour
         {
             connectionsForEachRoom[index].Add(connection);
             SendGameIDResponse(true, connection, index);
+            SendRequestSelectionsForObserver(connectionsForEachRoom[index][0]);
         }
         else
         {
@@ -598,6 +617,53 @@ public class NetworkServer : MonoBehaviour
                 buffer.Dispose();
             }
         }
+    }
+
+    public void SendRequestSelectionsForObserver(NetworkConnection connection)
+    {
+        DataStreamWriter streamWriter;
+
+        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.AllSelectionsToObserver);
+
+        networkDriver.EndSend(streamWriter);
+    }
+
+    public void ProcessSelectionsToObserver(string gameID, List<int[]> allSelections)
+    {
+        int index;
+
+        for (index = 0; index < allGameID.Count; index++)
+        {
+            if (gameID == allGameID[index])
+            {
+                break;
+            }
+        }
+
+        for (int i = 2;  i < connectionsForEachRoom[index].Count; i++)
+        {
+            SendSelectionsToObserver(connectionsForEachRoom[index][i], allSelections);
+        }
+    }
+
+    public void SendSelectionsToObserver(NetworkConnection connection, List<int[]> allSelections)
+    {
+        DataStreamWriter streamWriter;
+        networkDriver.BeginSend(reliableAndInOrderPipeline, connection, out streamWriter);
+        streamWriter.WriteInt(DataSignifiers.AllSelectionsToObserverFinal);
+
+        for (int i = 0; i < allSelections.Count; i++)
+        {
+            streamWriter.WriteInt(1);
+            streamWriter.WriteInt(allSelections[i][0]);
+            streamWriter.WriteInt(allSelections[i][1]);
+            streamWriter.WriteInt(allSelections[i][2]);
+        }
+
+        streamWriter.WriteInt(0);
+
+        networkDriver.EndSend(streamWriter);
     }
 
 }

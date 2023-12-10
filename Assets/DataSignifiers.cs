@@ -16,6 +16,8 @@ static public class DataSignifiers
     public const int ServerSendToLookingForPlayer = 9;
     public const int MessageToOpponent = 10;
     public const int SelectionToOpponent = 11;
+    public const int AllSelectionsToObserver = 12;
+    public const int AllSelectionsToObserverFinal = 13;
 }
 
 public enum GameStates { Login, EnterGameID, LookingForPlayer, PlayerMove, OpponentMove, Observer, Win, Lose, Draw, Finish };
