@@ -22,19 +22,13 @@ public class NetworkServer : MonoBehaviour
 
     const int MaxNumberOfClientConnections = 1000;
 
-    List<string> usernames;
-    List<string> passwords;
-
     [SerializeField]
-    List<string> allGameID;
-
-    [SerializeField]
-    List<List<NetworkConnection>> connectionsForEachRoom;
-
-    const string FilePathForSavedLoginInfo = "SaveLoginInformation.txt";
+    public List<List<NetworkConnection>> connectionsForEachRoom;
 
     void Start()
     {
+        NetworkServerProcessing.SetNetworkServer(this);
+
         networkDriver = NetworkDriver.Create();
         reliableAndInOrderPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage));
         nonReliableNotInOrderedPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage));
@@ -49,13 +43,11 @@ public class NetworkServer : MonoBehaviour
 
         networkConnections = new NativeList<NetworkConnection>(MaxNumberOfClientConnections, Allocator.Persistent);
 
-        usernames = new List<string>();
-        passwords = new List<string>();
         connectionsForEachRoom = new List<List<NetworkConnection>>();
 
-        if (File.Exists(FilePathForSavedLoginInfo))
+        if (File.Exists(NetworkServerProcessing.FilePathForSavedLoginInfo))
         {
-            LoadLoginInfo();
+            NetworkServerProcessing.LoadLoginInfo();
         }
     }
 
@@ -108,70 +100,9 @@ public class NetworkServer : MonoBehaviour
                 switch (networkEventType)
                 {
                     case NetworkEvent.Type.Data:
-                        int dataSignifier = streamReader.ReadInt();
 
-                        int sizeOfDataBuffer = streamReader.ReadInt();
-                        NativeArray<byte> buffer = new NativeArray<byte>(sizeOfDataBuffer, Allocator.Persistent);
-                        streamReader.ReadBytes(buffer);
-                        byte[] byteBuffer = buffer.ToArray();
-                        string msg = Encoding.Unicode.GetString(byteBuffer);
-                        
-                        string[] Info = msg.Split(',');
+                        NetworkServerProcessing.ProcessDataTypeFromClient(streamReader, networkConnections[i]);
 
-                        switch (dataSignifier)
-                        {
-                            case DataSignifiers.AccountSignup:
-                                ProcessUserSignup(Info[0], Info[1], networkConnections[i]);
-                                break;
-
-                            case DataSignifiers.AccountSignin:
-                                ProcessUserSignin(Info[0], Info[1], networkConnections[i]);
-                                break;
-
-                            case DataSignifiers.Message:
-                                ProcessReceivedMsg(msg);
-                                break;
-
-                            case DataSignifiers.GameID:
-                                ProcessUserGameID(msg, networkConnections[i]);
-                                break;
-
-                            case DataSignifiers.BackOut:
-                                ProcessUserBackOut(msg, networkConnections[i]);
-                                break;
-
-                            case DataSignifiers.MessageToOpponent:
-                                ProcessMessageToOpponent(Info[0], Info[1], networkConnections[i]);
-                                break;
-
-                            case DataSignifiers.SelectionToOpponent:
-                                int x = streamReader.ReadInt();
-                                int y = streamReader.ReadInt();
-                                int outcome = streamReader.ReadInt();
-                                ProcessSelectionToOpponent(msg, x, y, outcome, networkConnections[i]);
-                                break;
-
-                            case DataSignifiers.AllSelectionsToObserver:
-
-                                List<int[]> allSelections = new List<int[]>(); 
-
-                                while (streamReader.ReadInt() == 1)
-                                {
-                                    int[] temp = new int[3];
-
-                                    temp[0] = streamReader.ReadInt();
-                                    temp[1] = streamReader.ReadInt();
-                                    temp[2] = streamReader.ReadInt();
-
-                                    allSelections.Add(temp);
-                                }
-
-                                ProcessSelectionsToObserver(msg, allSelections);
-                                break;
-
-                        }
-
-                        buffer.Dispose();
                         break;
                     case NetworkEvent.Type.Disconnect:
                         Debug.Log("Client has disconnected from server");
@@ -203,10 +134,7 @@ public class NetworkServer : MonoBehaviour
         return true;
     }
 
-    private void ProcessReceivedMsg(string msg)
-    {
-        Debug.Log("Msg received = " + msg);
-    }
+    #region Send Data Functions
 
     public void SendMessageToClient(string msg, NetworkConnection networkConnection)
     {
@@ -250,147 +178,6 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
-    }
-
-    public void ProcessUserSignin(string username, string password, NetworkConnection networkConnection)
-    {
-        bool isValidUsername = false;
-        bool isValidPassword = false;
-
-        for (int i = 0; i < usernames.Count; i++)
-        {
-            if (username == usernames[i])
-            {
-                isValidUsername = true;
-
-                if (password == passwords[i])
-                {
-                    isValidPassword = true;
-                }
-
-                break;
-            }
-        }
-
-        if (isValidUsername)
-        {
-            if (isValidPassword)
-            {
-                SendLoginResponseToClient("Sign in approved", true, networkConnection);
-            }
-            else
-            {
-                SendLoginResponseToClient("Wrong password for this username", false, networkConnection);
-            }
-        }
-        else
-        {
-            SendLoginResponseToClient("Username does not exist please proceed to sign up", false, networkConnection);
-        }
-    }
-
-    public void ProcessUserSignup(string username, string password, NetworkConnection networkConnection)
-    {
-        bool isValid = true;
-
-        foreach (string s in usernames)
-        {
-            if (username == s)
-            {
-                isValid = false;
-                break;
-            }
-        }
-
-        if (isValid)
-        {
-            usernames.Add(username);
-            passwords.Add(password);
-
-            SendLoginResponseToClient("New Account Created", true, networkConnection);
-
-            SaveLoginInfo();
-        }
-        else
-        {
-            SendLoginResponseToClient("Account already exists please proceed to sign in", false, networkConnection);
-        }
-    }
-
-    public void SaveLoginInfo()
-    {
-        StreamWriter sw = new StreamWriter(FilePathForSavedLoginInfo);
-
-        for (int i = 0; i < usernames.Count; i++)
-        {
-            string info = usernames[i] + ',' + passwords[i];
-
-            sw.WriteLine(info);
-        }
-
-        sw.Close();
-    }
-
-    public void LoadLoginInfo()
-    {
-        StreamReader sr = new StreamReader(FilePathForSavedLoginInfo);
-
-        while (!sr.EndOfStream)
-        {
-            string info = sr.ReadLine();
-            string[] infoSeparated = info.Split(',');
-            
-            usernames.Add(infoSeparated[0]);
-            passwords.Add(infoSeparated[1]);
-        }
-
-        sr.Close();
-    }
-
-    public void ProcessUserGameID(string gameID, NetworkConnection connection)
-    {
-        bool isInList = false;
-
-        int index;
-
-        for (index = 0; index < allGameID.Count; index++)
-        {
-            if (gameID == allGameID[index])
-            {
-                isInList = true;
-                break;
-            }
-        }
-
-        if (isInList && !connectionsForEachRoom[index][1].IsCreated)
-        {
-            
-            connectionsForEachRoom[index][1] = connection;
-
-            SendGameIDResponse(true, connection, index);
-            
-        }
-        else if (isInList)
-        {
-            connectionsForEachRoom[index].Add(connection);
-            SendGameIDResponse(true, connection, index);
-            SendRequestSelectionsForObserver(connectionsForEachRoom[index][0]);
-        }
-        else
-        {
-            allGameID.Add(gameID);
-
-            List<NetworkConnection> tempConnectionsForGameRoom;
-            tempConnectionsForGameRoom = new List<NetworkConnection>()
-            {
-                connection,
-                new NetworkConnection()
-            };
-
-            connectionsForEachRoom.Add(tempConnectionsForGameRoom);
-
-            SendGameIDResponse(false, connection, allGameID.Count - 1);
-        }
     }
 
     public void SendGameIDResponse(bool isBothPlayersIn, NetworkConnection connection, int gameRoomIndex)
@@ -455,46 +242,6 @@ public class NetworkServer : MonoBehaviour
         
     }
 
-    public void ProcessUserBackOut(string gameID, NetworkConnection connection)
-    {
-        int index;
-
-        for (index = 0; index < allGameID.Count; index++)
-        {
-            if (gameID == allGameID[index])
-            {
-                break;
-            }
-        }
-
-        if (connectionsForEachRoom[index][0] == connection)
-        {
-            if (!connectionsForEachRoom[index][1].IsCreated)
-            {
-                allGameID.Remove(gameID);
-                SendServerGameRoomKick(index);
-                connectionsForEachRoom.RemoveAt(index);
-            }
-            else
-            {
-                connectionsForEachRoom[index][0] = connectionsForEachRoom[index][1];
-                connectionsForEachRoom[index][1] = new NetworkConnection();
-                SendServerSendToLookingForPlayer(connectionsForEachRoom[index][0]);
-                SendServerGameRoomKick(index);
-            }
-            
-        }
-        else if (connectionsForEachRoom[index][1] == connection)
-        {
-            connectionsForEachRoom[index][1] = new NetworkConnection();
-            SendServerSendToLookingForPlayer(connectionsForEachRoom[index][0]);
-        }
-        else
-        {
-            connectionsForEachRoom[index].Remove(connection);
-        }
-    }
-
     public void SendServerGameRoomKick(int gameRoomIndex)
     {
         for (int i = 2; i < connectionsForEachRoom[gameRoomIndex].Count; i++)
@@ -520,28 +267,6 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
     }
 
-    public void ProcessMessageToOpponent(string gameID, string msg, NetworkConnection connection)
-    {
-        int index;
-
-        for (index = 0; index < allGameID.Count; index++)
-        {
-            if (gameID == allGameID[index])
-            {
-                break;
-            }
-        }
-
-        if (connectionsForEachRoom[index][0] == connection)
-        {
-            SendMessageFromOpponent(connectionsForEachRoom[index][1], msg);
-        }
-        else
-        {
-            SendMessageFromOpponent(connectionsForEachRoom[index][0], msg);
-        }
-    }
-
     public void SendMessageFromOpponent(NetworkConnection connection, string msg)
     {
         string temp = "Message: " + msg;
@@ -558,28 +283,6 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
-    }
-
-    public void ProcessSelectionToOpponent(string gameID, int x, int y, int outcome, NetworkConnection connection)
-    {
-        int index;
-
-        for (index = 0; index < allGameID.Count; index++)
-        {
-            if (gameID == allGameID[index])
-            {
-                break;
-            }
-        }
-
-        if (connectionsForEachRoom[index][0] == connection)
-        {
-            SendSelectionFromOpponent(connectionsForEachRoom[index][0], x, y, outcome, "X", index);
-        }
-        else if (connectionsForEachRoom[index][1] == connection)
-        {
-            SendSelectionFromOpponent(connectionsForEachRoom[index][1], x, y, outcome, "O", index);
-        }
     }
 
     public void SendSelectionFromOpponent(NetworkConnection connectionToIgnore, int x, int y, int outcome, string marker, int gameRoomIndex)
@@ -618,24 +321,6 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
     }
 
-    public void ProcessSelectionsToObserver(string gameID, List<int[]> allSelections)
-    {
-        int index;
-
-        for (index = 0; index < allGameID.Count; index++)
-        {
-            if (gameID == allGameID[index])
-            {
-                break;
-            }
-        }
-
-        for (int i = 2;  i < connectionsForEachRoom[index].Count; i++)
-        {
-            SendSelectionsToObserver(connectionsForEachRoom[index][i], allSelections);
-        }
-    }
-
     public void SendSelectionsToObserver(NetworkConnection connection, List<int[]> allSelections)
     {
         DataStreamWriter streamWriter;
@@ -654,5 +339,7 @@ public class NetworkServer : MonoBehaviour
 
         networkDriver.EndSend(streamWriter);
     }
+
+    #endregion
 
 }
