@@ -67,17 +67,6 @@ public class NetworkServer : MonoBehaviour
 
     void Update()
     {
-        #region Check Input and Send Msg
-
-        if (Input.GetKeyDown(KeyCode.A))
-        {
-            for (int i = 0; i < networkConnections.Length; i++)
-            {
-                SendMessageToClient("Hello client's world, sincerely your network server", networkConnections[i]);
-            }
-        }
-
-        #endregion
 
         networkDriver.ScheduleUpdate().Complete();
 
